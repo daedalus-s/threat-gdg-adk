@@ -12,37 +12,64 @@ if "GOOGLE_API_KEY" not in os.environ:
 
 
 async def test_video(video_path: str):
-    """Test analyzing a single video file."""
+    """Test analyzing multiple frames from a video file."""
     print(f"\n🎥 Testing Video: {video_path}")
     print("=" * 60)
     
     # Process video
-    with RealVideoProcessor(video_path, camera_id=1) as processor:
-        # Extract first frame
-        print("📸 Extracting first frame...")
-        frame = processor.extract_single_frame(frame_number=0)
+    with RealVideoProcessor(video_path, camera_id=1, fps_extract=0.2) as processor:
+        # Extract frames at 5-second intervals
+        print("📸 Extracting frames (1 frame every 5 seconds)...")
+        frames = list(processor.extract_frames())
         
-        print(f"✓ Frame extracted")
-        print(f"  Timestamp: {frame.timestamp:.2f}s")
-        print(f"  Frame number: {frame.frame_number}")
+        print(f"✓ Extracted {len(frames)} frames")
+        print(f"  Video duration: ~{frames[-1].timestamp:.1f}s" if frames else "")
         
-        # Analyze with vision agent
-        print("\n🔍 Analyzing frame with AI...")
-        analysis = await analyze_frame(
-            camera_id=1,
-            image_base64=frame.image_base64,
-            scenario="test"
-        )
-        
-        # Display results
-        print("\n📊 ANALYSIS RESULTS:")
+        # Analyze each frame
+        print("\n🔍 Analyzing frames with AI...")
         print("=" * 60)
-        print(f"Threat Level: {analysis.get('threat_level', 'unknown').upper()}")
-        print(f"Weapon Detected: {analysis.get('weapon_type', 'none')}")
-        print(f"Unknown Person: {'YES' if analysis.get('unfamiliar_face') else 'NO'}")
-        print(f"People Count: {analysis.get('people_count', 0)}")
-        print(f"Threats: {', '.join(analysis.get('threats_detected', [])) or 'None'}")
-        print(f"\nDescription: {analysis.get('description', 'N/A')}")
+        
+        max_threat_level = "none"
+        threat_levels = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+        all_analyses = []
+        
+        for i, frame in enumerate(frames, 1):
+            print(f"\nFrame {i}/{len(frames)} (at {frame.timestamp:.1f}s):")
+            
+            analysis = await analyze_frame(
+                camera_id=1,
+                image_base64=frame.image_base64,
+                scenario="test"
+            )
+            all_analyses.append(analysis)
+            
+            threat_level = analysis.get('threat_level', 'unknown')
+            print(f"  Threat Level: {threat_level.upper()}")
+            print(f"  Weapon: {analysis.get('weapon_type', 'none')}")
+            print(f"  People: {analysis.get('people_count', 0)}")
+            print(f"  Description: {analysis.get('description', 'N/A')[:60]}...")
+            
+            # Track highest threat level
+            if threat_levels.get(threat_level, 0) > threat_levels.get(max_threat_level, 0):
+                max_threat_level = threat_level
+        
+        # Summary
+        print("\n📊 VIDEO ANALYSIS SUMMARY:")
+        print("=" * 60)
+        print(f"Total Frames Analyzed: {len(frames)}")
+        print(f"Maximum Threat Level: {max_threat_level.upper()}")
+        
+        # Count weapons detected across all frames
+        weapons_detected = [a.get('weapon_type', 'none') for a in all_analyses if a.get('weapon_type') != 'none']
+        if weapons_detected:
+            print(f"Weapons Detected: {len(weapons_detected)} frames")
+            print(f"  Types: {', '.join(set(weapons_detected))}")
+        
+        # Count unfamiliar faces
+        unfamiliar_count = sum(1 for a in all_analyses if a.get('unfamiliar_face'))
+        if unfamiliar_count > 0:
+            print(f"Unknown Persons Detected: {unfamiliar_count} frames")
+        
         print("=" * 60)
 
 
