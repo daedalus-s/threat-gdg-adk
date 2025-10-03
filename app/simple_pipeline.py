@@ -3,6 +3,8 @@
 import asyncio
 import logging
 import json
+import os
+import google.auth
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -10,6 +12,24 @@ from google.genai import types
 from app.sensors.simulator import SensorSimulator
 from app.agents.sensor_agent import create_sensor_agent
 from app.agents.orchestrator_agent import create_orchestrator_agent
+
+# Set up authentication BEFORE importing agents
+# Option A: Use Vertex AI (requires billing)
+# _, project_id = google.auth.default()
+# os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
+# os.environ["GOOGLE_CLOUD_LOCATION"] = "us-central1"
+# os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+
+# Option B: Use Google AI Studio (free for development)
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "False"
+# Get your API key from: https://aistudio.google.com/app/apikey
+# Set it as environment variable: $env:GOOGLE_API_KEY="your-key-here"
+if "GOOGLE_API_KEY" not in os.environ:
+    raise ValueError(
+        "GOOGLE_API_KEY not found! Please set it:\n"
+        "PowerShell: $env:GOOGLE_API_KEY=\"your-key-here\"\n"
+        "Or get your key from: https://aistudio.google.com/app/apikey"
+    )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
