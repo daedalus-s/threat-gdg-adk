@@ -1,65 +1,143 @@
-# Home Threat Detection System - Makefile
+# Windows-compatible Makefile for Home Threat Detection
+# Detects OS and uses appropriate commands
 
-.PHONY: install playground backend local-backend test lint setup-dev-env
+ifeq ($(OS),Windows_NT)
+    SHELL := powershell.exe
+    .SHELLFLAGS := -NoProfile -Command
+    RM = Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    MKDIR = New-Item -ItemType Directory -Force -Path
+    PYTHON = python
+else
+    SHELL := /bin/bash
+    RM = rm -rf
+    MKDIR = mkdir -p
+    PYTHON = python3
+endif
 
-# Install dependencies using pip or uv
+.PHONY: install playground backend local-backend setup-dev-env test lint clean demo
+
+# Install dependencies using uv package manager
 install:
-	@command -v uv >/dev/null 2>&1 || { echo "uv is not installed. Installing uv..."; curl -LsSf https://astral.sh/uv/0.6.12/install.sh | sh; source $$HOME/.local/bin/env; }
+ifeq ($(OS),Windows_NT)
+	@echo "Checking for uv installation..."
+	@powershell -Command "if (!(Get-Command uv -ErrorAction SilentlyContinue)) { Write-Host 'Installing uv...'; irm https://astral.sh/uv/0.6.12/install.ps1 | iex }"
 	uv sync --dev
+else
+	@command -v uv >/dev/null 2>&1 || { echo "Installing uv..."; curl -LsSf https://astral.sh/uv/0.6.12/install.sh | sh; }
+	uv sync --dev
+endif
+	@echo "✓ Dependencies installed"
 
-# Launch local development playground
+# Launch local dev playground
 playground:
 	@echo "==============================================================================="
-	@echo "| 🚀 Starting threat detection system playground...                          |"
+	@echo "| 🚀 Starting threat detection playground...                                  |"
 	@echo "|                                                                             |"
-	@echo "| 💡 Open http://localhost:8501 to view the dashboard                         |"
+	@echo "| 💡 Try simulating different threat scenarios                                |"
 	@echo "|                                                                             |"
-	@echo "| 🔍 IMPORTANT: Make sure video files are in data/videos/                     |"
+	@echo "| 🔍 IMPORTANT: Select the 'app' folder to interact with your agent.          |"
 	@echo "==============================================================================="
 	uv run adk web . --port 8501 --reload_agents
 
-# Launch local development server with hot-reload
-local-backend:
-	uv run uvicorn app.server:app --host 0.0.0.0 --port 8000 --reload
-
-# Deploy to Cloud Run
+# Deploy the agent remotely to Cloud Run
 backend:
+ifeq ($(OS),Windows_NT)
+	@powershell -Command "$$PROJECT_ID = (gcloud config get-value project); gcloud beta run deploy home-threat-detection --source . --memory '4Gi' --project $$PROJECT_ID --region 'us-central1' --no-allow-unauthenticated --no-cpu-throttling --labels 'created-by=adk' --set-env-vars 'COMMIT_SHA=$$(git rev-parse HEAD)' $(if $(IAP),--iap) $(if $(PORT),--port=$(PORT))"
+else
 	PROJECT_ID=$$(gcloud config get-value project) && \
-	gcloud run deploy home-threat-detection \
+	gcloud beta run deploy home-threat-detection \
 		--source . \
-		--memory "8Gi" \
-		--cpu "4" \
+		--memory "4Gi" \
 		--project $$PROJECT_ID \
 		--region "us-central1" \
 		--no-allow-unauthenticated \
-		--set-env-vars="COMMIT_SHA=$$(git rev-parse HEAD)"
+		--no-cpu-throttling \
+		--labels "created-by=adk" \
+		--set-env-vars "COMMIT_SHA=$$(git rev-parse HEAD)" \
+		$(if $(IAP),--iap) \
+		$(if $(PORT),--port=$(PORT))
+endif
 
-# Run tests
+# Launch local development server with hot-reload
+local-backend:
+	@echo "Starting local backend on http://localhost:8000"
+	uv run uvicorn app.server:app --host 0.0.0.0 --port 8000 --reload
+
+# Run the demo pipeline
+demo:
+	@echo "Running threat detection demo..."
+	uv run python -m app.pipeline
+
+# Run demo with specific scenario
+demo-intrusion:
+	@echo "Running INTRUSION scenario..."
+	uv run python -c "import asyncio; from app.pipeline import ThreatDetectionPipeline; asyncio.run(ThreatDetectionPipeline({}, 'intrusion').process_cycle())"
+
+demo-fall:
+	@echo "Running FALL scenario..."
+	uv run python -c "import asyncio; from app.pipeline import ThreatDetectionPipeline; asyncio.run(ThreatDetectionPipeline({}, 'fall').process_cycle())"
+
+demo-fire:
+	@echo "Running FIRE scenario..."
+	uv run python -c "import asyncio; from app.pipeline import ThreatDetectionPipeline; asyncio.run(ThreatDetectionPipeline({}, 'fire').process_cycle())"
+
+# Set up development environment resources using Terraform
+setup-dev-env:
+ifeq ($(OS),Windows_NT)
+	@powershell -Command "$$PROJECT_ID = (gcloud config get-value project); cd deployment/terraform/dev; terraform init; terraform apply -var-file=vars/env.tfvars -var=dev_project_id=$$PROJECT_ID -auto-approve"
+else
+	PROJECT_ID=$$(gcloud config get-value project) && \
+	(cd deployment/terraform/dev && terraform init && terraform apply --var-file vars/env.tfvars --var dev_project_id=$$PROJECT_ID --auto-approve)
+endif
+
+# Run unit and integration tests
 test:
-	uv run pytest tests/unit
-	uv run pytest tests/integration
+	@echo "Running tests..."
+	uv run pytest tests/unit -v
+	uv run pytest tests/integration -v
 
 # Run code quality checks
 lint:
-	uv sync --dev
+	@echo "Running code quality checks..."
+	uv sync --dev --extra lint
 	uv run ruff check . --diff
 	uv run ruff format . --check --diff
-	uv run mypy .
+	uv run mypy app/
 
-# Set up development environment with Terraform
-setup-dev-env:
-	PROJECT_ID=$$(gcloud config get-value project) && \
-	(cd deployment/terraform && terraform init && terraform apply --auto-approve)
+# Clean build artifacts
+clean:
+ifeq ($(OS),Windows_NT)
+	@powershell -Command "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue __pycache__, .pytest_cache, .mypy_cache, .ruff_cache, *.egg-info, dist, build"
+else
+	$(RM) __pycache__ .pytest_cache .mypy_cache .ruff_cache *.egg-info dist build
+endif
+	@echo "✓ Cleaned build artifacts"
 
-# Run video frame extraction test
-test-video:
-	uv run python -m app.tools.video_processor --test
+# Show help
+help:
+	@echo "Home Threat Detection System - Available Commands:"
+	@echo ""
+	@echo "Setup & Installation:"
+	@echo "  make install        - Install all dependencies"
+	@echo "  make setup-dev-env  - Setup GCP development environment"
+	@echo ""
+	@echo "Development:"
+	@echo "  make playground     - Launch ADK web playground"
+	@echo "  make local-backend  - Run local server on port 8000"
+	@echo "  make demo           - Run full demo pipeline"
+	@echo "  make demo-intrusion - Run intrusion scenario"
+	@echo "  make demo-fall      - Run fall detection scenario"
+	@echo "  make demo-fire      - Run fire detection scenario"
+	@echo ""
+	@echo "Deployment:"
+	@echo "  make backend        - Deploy to Cloud Run"
+	@echo "  make backend IAP=true - Deploy with IAP enabled"
+	@echo ""
+	@echo "Testing & Quality:"
+	@echo "  make test           - Run all tests"
+	@echo "  make lint           - Run code quality checks"
+	@echo "  make clean          - Clean build artifacts"
+	@echo ""
 
-# Run sensor simulator test
-test-sensors:
-	uv run python -m app.simulators.sensor_simulator --test
-
-# Start demo scenario
-demo:
-	@echo "Starting full threat detection demo..."
-	uv run python scripts/run_demo.py
+# Default target
+.DEFAULT_GOAL := help
