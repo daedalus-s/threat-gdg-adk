@@ -1,4 +1,4 @@
-"""Comprehensive pipeline with automatic temporal storage."""
+"""Comprehensive pipeline analyzing all 5 cameras + sensors together."""
 
 import asyncio
 import json
@@ -6,7 +6,6 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict
-from datetime import datetime
 
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "False"
 if "GOOGLE_API_KEY" not in os.environ:
@@ -21,14 +20,6 @@ from app.agents.orchestrator_agent import create_orchestrator_agent
 from app.sensors.simulator import SensorSimulator
 from app.video.full_video_analyzer import analyze_full_video
 
-# Import temporal storage
-try:
-    from app.temporal.vector_store import TemporalVectorStore
-    TEMPORAL_STORAGE_ENABLED = True
-except ImportError:
-    TEMPORAL_STORAGE_ENABLED = False
-    logging.warning("Temporal storage not available. Install: uv add pinecone sentence-transformers")
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -37,31 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 class ComprehensiveThreatDetectionPipeline:
-    """
-    Complete threat detection analyzing all cameras and sensors together.
-    Now with automatic temporal storage!
-    """
+    """Complete threat detection analyzing all cameras and sensors together."""
     
-    def __init__(
-        self,
-        video_directory: str = "videos",
-        enable_temporal_storage: bool = True
-    ):
+    def __init__(self, video_directory: str = "videos"):
         self.video_dir = Path(video_directory)
         if not self.video_dir.exists():
             self.video_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize temporal storage
-        self.temporal_storage_enabled = enable_temporal_storage and TEMPORAL_STORAGE_ENABLED
-        if self.temporal_storage_enabled:
-            try:
-                self.vector_store = TemporalVectorStore()
-                logger.info("✅ Temporal storage ENABLED - insights will be stored automatically")
-            except Exception as e:
-                logger.warning(f"⚠️  Could not initialize temporal storage: {e}")
-                self.temporal_storage_enabled = False
-        else:
-            logger.info("ℹ️  Temporal storage DISABLED")
     
     async def analyze_all_sensors(self, sensor_data: dict) -> dict[str, Any]:
         """Analyze all sensor data with sensor agent."""
@@ -103,13 +75,9 @@ class ComprehensiveThreatDetectionPipeline:
     async def analyze_all_cameras(
         self,
         video_files: Dict[int, str],
-        scenario: str,
-        session_id: str  # NEW: session ID for grouping
+        scenario: str
     ) -> list[dict[str, Any]]:
-        """
-        Analyze all 5 camera feeds with full video analysis.
-        NOW AUTOMATICALLY STORES INSIGHTS!
-        """
+        """Analyze all 5 camera feeds with full video analysis."""
         camera_analyses = []
         
         for camera_id in range(1, 6):  # Cameras 1-5
@@ -140,16 +108,6 @@ class ComprehensiveThreatDetectionPipeline:
                     camera_id=camera_id,
                     scenario=scenario
                 )
-                
-                # 🆕 AUTO-STORE: Store frame insights to vector database
-                if self.temporal_storage_enabled:
-                    await self._store_camera_insights(
-                        camera_id=camera_id,
-                        analysis=analysis,
-                        video_path=video_path,
-                        session_id=session_id
-                    )
-                
                 camera_analyses.append(analysis)
                 
             except Exception as e:
@@ -161,54 +119,6 @@ class ComprehensiveThreatDetectionPipeline:
                 })
         
         return camera_analyses
-    
-    async def _store_camera_insights(
-        self,
-        camera_id: int,
-        analysis: dict,
-        video_path: str,
-        session_id: str
-    ):
-        """
-        Store all frame insights to vector database.
-        This runs automatically during analysis!
-        """
-        frame_analyses = analysis.get('frame_analyses', [])
-        stored_count = 0
-        failed_count = 0
-        
-        logger.info(f"📦 Storing {len(frame_analyses)} frame insights for Camera {camera_id}...")
-        
-        for frame_analysis in frame_analyses:
-            try:
-                record_id = self.vector_store.upsert_analysis(
-                    camera_id=camera_id,
-                    timestamp=frame_analysis.get('timestamp', 0),
-                    frame_number=frame_analysis.get('frame_number', 0),
-                    analysis=frame_analysis,
-                    video_path=video_path,
-                    session_id=session_id
-                )
-                stored_count += 1
-                
-                # Log only significant events to avoid spam
-                if frame_analysis.get('threat_level') not in ['none', 'low']:
-                    logger.info(
-                        f"  📌 Stored {frame_analysis.get('threat_level').upper()} threat "
-                        f"at {frame_analysis.get('timestamp', 0):.1f}s: {record_id}"
-                    )
-                
-            except Exception as e:
-                failed_count += 1
-                logger.error(f"  ❌ Failed to store frame {frame_analysis.get('frame_number')}: {e}")
-        
-        logger.info(
-            f"✅ Camera {camera_id} storage complete: "
-            f"{stored_count}/{len(frame_analyses)} frames stored"
-        )
-        
-        if failed_count > 0:
-            logger.warning(f"⚠️  {failed_count} frames failed to store")
     
     async def orchestrate_final_decision(
         self,
@@ -307,27 +217,19 @@ class ComprehensiveThreatDetectionPipeline:
     async def run_complete_analysis(
         self,
         scenario: str,
-        video_files: Dict[int, str],
-        session_id: Optional[str] = None
+        video_files: Dict[int, str]
     ) -> dict[str, Any]:
         """
         Run complete threat detection analysis.
-        Now with automatic temporal storage!
         
         Args:
             scenario: Scenario name for context
             video_files: Dict mapping camera_id (1-5) to video file paths
-            session_id: Optional session ID (auto-generated if not provided)
             
         Returns:
             Complete analysis results
         """
-        # Generate session ID if not provided
-        if session_id is None:
-            session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
         logger.info(f"Starting comprehensive analysis for scenario: {scenario}")
-        logger.info(f"Session ID: {session_id}")
         
         # 1. Generate and analyze sensor data
         logger.info("Step 1/3: Analyzing sensor data...")
@@ -336,13 +238,9 @@ class ComprehensiveThreatDetectionPipeline:
         sensor_analysis = await self.analyze_all_sensors(sensor_data)
         logger.info(f"Sensor analysis complete: {sensor_analysis.get('threat_level', 'unknown')}")
         
-        # 2. Analyze all 5 camera feeds (NOW WITH AUTO-STORAGE!)
+        # 2. Analyze all 5 camera feeds
         logger.info("Step 2/3: Analyzing all camera feeds...")
-        camera_analyses = await self.analyze_all_cameras(
-            video_files,
-            scenario,
-            session_id  # Pass session ID for grouping
-        )
+        camera_analyses = await self.analyze_all_cameras(video_files, scenario)
         online_cameras = sum(1 for c in camera_analyses if not c.get('error'))
         logger.info(f"Camera analysis complete: {online_cameras}/5 cameras online")
         
@@ -355,19 +253,12 @@ class ComprehensiveThreatDetectionPipeline:
         )
         logger.info(f"Final decision: {decision.get('threat_level', 'unknown')}")
         
-        # Show temporal storage summary
-        if self.temporal_storage_enabled:
-            stats = self.vector_store.get_stats()
-            logger.info(f"📊 Temporal Storage: {stats['total_vectors']} total insights stored")
-        
         return {
-            "session_id": session_id,
             "scenario": scenario,
             "sensor_data": sensor_data,
             "sensor_analysis": sensor_analysis,
             "camera_analyses": camera_analyses,
-            "decision": decision,
-            "temporal_storage_enabled": self.temporal_storage_enabled
+            "decision": decision
         }
 
 
@@ -381,15 +272,7 @@ def print_comprehensive_results(result: dict):
     
     print(f"\n{'='*100}")
     print(f"COMPREHENSIVE THREAT DETECTION - SCENARIO: {scenario.upper()}")
-    print(f"Session ID: {result.get('session_id', 'N/A')}")
     print(f"{'='*100}")
-    
-    # Temporal storage indicator
-    if result.get('temporal_storage_enabled'):
-        print("\n✅ TEMPORAL STORAGE: All insights automatically stored in vector database")
-        print("   You can now query: 'What happened between 15 and 20 seconds?'")
-    else:
-        print("\nℹ️  TEMPORAL STORAGE: Disabled")
     
     # Sensor Data
     print("\n[SENSOR DATA]")
@@ -449,29 +332,26 @@ def print_comprehensive_results(result: dict):
 
 
 async def main():
-    """Run comprehensive threat detection demo with auto-storage."""
+    """Run comprehensive threat detection demo."""
     
     # Configure your 5 camera video files
     video_config = {
-        1: r"videos\weapon.mp4",
-        2: r"videos\fall.mp4",
+        1: r"videos\fall.mp4",
+        2: r"videos\fire.mp4",  # Add when you have more videos
         3: r"videos\normal.mp4",
-        # 4: r"videos\camera4.mp4",
+        4: r"videos\weapon.mp4",
         # 5: r"videos\camera5.mp4",
     }
     
-    # Initialize pipeline with temporal storage enabled
-    pipeline = ComprehensiveThreatDetectionPipeline(
-        enable_temporal_storage=True  # Set to False to disable
-    )
+    pipeline = ComprehensiveThreatDetectionPipeline()
     
     print("\n" + "="*100)
     print("COMPREHENSIVE THREAT DETECTION SYSTEM")
-    print("5 Cameras + Multiple Sensors + AI Analysis + Temporal Storage")
+    print("5 Cameras + Multiple Sensors + AI Analysis")
     print("="*100 + "\n")
     
-    # Run analysis (insights stored automatically!)
-    scenarios = ["weapon_threat", "normal"]
+    # You can test different scenarios
+    scenarios = ["weapon_threat", "normal", "intrusion"]
     
     for scenario in scenarios:
         print(f"Processing scenario: {scenario.upper()}\n")
@@ -480,19 +360,6 @@ async def main():
         print_comprehensive_results(result)
         
         await asyncio.sleep(2)
-    
-    # Show how to query stored data
-    if pipeline.temporal_storage_enabled:
-        print("\n" + "="*100)
-        print("💡 TEMPORAL QUERY EXAMPLES")
-        print("="*100)
-        print("\nYou can now query your stored data:")
-        print("  - 'What happened in camera 1 between 15 and 20 seconds?'")
-        print("  - 'Show me all weapon detections'")
-        print("  - 'When did someone fall?'")
-        print("  - 'Give me a timeline for camera 1'")
-        print("\nRun: uv run python -m app.temporal.integration_demo")
-        print("="*100 + "\n")
 
 
 if __name__ == "__main__":

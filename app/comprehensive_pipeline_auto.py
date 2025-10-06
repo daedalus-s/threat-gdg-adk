@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from datetime import datetime
 
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "False"

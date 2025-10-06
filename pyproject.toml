@@ -17,6 +17,7 @@ dependencies = [
     "google-cloud-logging>=3.11.0",
     "pinecone-client>=3.0.0",
     "sentence-transformers>=2.3.0",
+    "pinecone>=7.3.0",
 ]
 
 requires-python = ">=3.11,<3.14"
